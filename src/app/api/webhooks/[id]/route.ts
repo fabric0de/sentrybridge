@@ -260,6 +260,19 @@ export async function POST(
 ) {
   try {
     const { id } = params;
+    const webhookData = await request.json();
+
+    const sentryData: SentryEvent = {
+      ...webhookData.event,
+      project: webhookData.project,
+      project_name: webhookData.project_name,
+      level: webhookData.level,
+      culprit: webhookData.culprit,
+      message: webhookData.message,
+      url: webhookData.url,
+    };
+
+    console.log("Processed Sentry data:", JSON.stringify(sentryData, null, 2));
 
     const { data: webhook } = await supabase
       .from("webhooks")
@@ -271,7 +284,6 @@ export async function POST(
       return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
     }
 
-    const sentryData = await request.json();
     const slackMessage =
       webhook.message_format === "detailed"
         ? formatDetailedMessage(sentryData)
