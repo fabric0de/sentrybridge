@@ -13,7 +13,7 @@ type SlackBlockText = {
 };
 
 type SlackBlock = {
-  type: "header" | "section";
+  type: "header" | "section" | "divider";
   text?: SlackBlockText;
   fields?: Array<{
     type: "mrkdwn" | "plain_text";
@@ -93,14 +93,26 @@ function formatExtra(extra?: Record<string, unknown>): string {
 
 function formatBasicMessage(sentryData: SentryEvent): { blocks: SlackBlock[] } {
   const exception = sentryData.exception?.values?.[0];
+  const timestamp = sentryData.timestamp
+    ? new Date(sentryData.timestamp * 1000).toLocaleString()
+    : "N/A";
 
   const blocks: SlackBlock[] = [
     {
       type: "header",
       text: {
         type: "plain_text",
-        text: `🚨 Error: ${sentryData.metadata?.title || "Error Alert"}`,
+        text: `🚨 Error in ${sentryData.project || "Unknown Project"}`,
         emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${
+          sentryData.metadata?.title || exception?.value || "Error Alert"
+        }*`,
       },
     },
     {
@@ -111,10 +123,13 @@ function formatBasicMessage(sentryData: SentryEvent): { blocks: SlackBlock[] } {
           type: "mrkdwn",
           text: `*Environment:*\n${sentryData.environment || "N/A"}`,
         },
+        { type: "mrkdwn", text: `*Level:*\n${sentryData.level}` },
+        { type: "mrkdwn", text: `*Time:*\n${timestamp}` },
       ],
     },
   ];
 
+  // Source Code Context
   if (exception) {
     blocks.push({
       type: "section",
@@ -133,6 +148,31 @@ function formatBasicMessage(sentryData: SentryEvent): { blocks: SlackBlock[] } {
     });
   }
 
+  // User Context (if available)
+  if (sentryData.user) {
+    blocks.push({
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*User ID:*\n${sentryData.user.id || "N/A"}` },
+        {
+          type: "mrkdwn",
+          text: `*User Email:*\n${sentryData.user.email || "N/A"}`,
+        },
+      ],
+    });
+  }
+
+  // URL and View in Sentry button
+  if (sentryData.url) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<${sentryData.url}|View in Sentry →>`,
+      },
+    });
+  }
+
   return { blocks };
 }
 
@@ -141,6 +181,51 @@ function formatDetailedMessage(sentryData: SentryEvent): {
 } {
   const blocks = [...formatBasicMessage(sentryData).blocks];
 
+  // Browser & OS Info
+  if (sentryData.contexts) {
+    const browserInfo = sentryData.contexts.browser;
+    const osInfo = sentryData.contexts.os;
+
+    blocks.push({
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Browser:*\n${browserInfo?.name} ${
+            browserInfo?.version || "N/A"
+          }`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*OS:*\n${osInfo?.name} ${osInfo?.version || "N/A"}`,
+        },
+      ],
+    });
+  }
+
+  // Recent Breadcrumbs
+  if (sentryData.breadcrumbs?.values.length) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Recent Activity:*\n```" +
+          sentryData.breadcrumbs.values
+            .slice(-5)
+            .map(
+              (b) =>
+                `[${new Date(b.timestamp * 1000).toLocaleTimeString()}] ${
+                  b.category
+                }: ${b.message || b.type}`
+            )
+            .join("\n") +
+          "```",
+      },
+    });
+  }
+
+  // Tags
   if (sentryData.tags?.length) {
     blocks.push({
       type: "section",
@@ -151,31 +236,20 @@ function formatDetailedMessage(sentryData: SentryEvent): {
     });
   }
 
-  if (sentryData.contexts) {
-    blocks.push({
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Browser:*\n${sentryData.contexts.browser?.name} ${sentryData.contexts.browser?.version}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*OS:*\n${sentryData.contexts.os?.name} ${sentryData.contexts.os?.version}`,
-        },
-      ],
-    });
-  }
-
+  // Extra Data
   if (sentryData.extra) {
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: "*Extra Data:*\n```" + formatExtra(sentryData.extra) + "```",
+        text:
+          "*Additional Context:*\n```" + formatExtra(sentryData.extra) + "```",
       },
     });
   }
+
+  // Divider before link
+  blocks.push({ type: "divider" });
 
   return { blocks };
 }
