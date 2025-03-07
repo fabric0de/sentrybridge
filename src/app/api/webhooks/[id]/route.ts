@@ -15,6 +15,9 @@ interface SentryEvent {
           function: string;
           lineno: number;
           colno: number;
+          context_line?: string;
+          pre_context?: string[];
+          post_context?: string[];
         }>;
       };
     }>;
@@ -27,35 +30,77 @@ interface SentryEvent {
   project?: string;
   timestamp?: string;
   url?: string;
+  user?: {
+    id?: string;
+    email?: string;
+    ip_address?: string;
+  };
+  tags?: Array<{
+    key: string;
+    value: string;
+  }>;
+  contexts?: {
+    browser?: {
+      name?: string;
+      version?: string;
+    };
+    os?: {
+      name?: string;
+      version?: string;
+    };
+  };
 }
 
-function formatStackTrace(exception: SentryEvent["exception"]) {
+type SlackBlockText = {
+  type: "plain_text" | "mrkdwn";
+  text: string;
+  emoji?: boolean;
+};
+
+type SlackBlock = {
+  type: "header" | "section";
+  text?: SlackBlockText;
+  fields?: Array<{
+    type: "mrkdwn" | "plain_text";
+    text: string;
+  }>;
+};
+
+function formatStackTrace(
+  exception: SentryEvent["exception"],
+  detailed = false
+) {
   if (!exception?.values?.[0]?.stacktrace?.frames) return "";
 
-  const frames = exception.values[0].stacktrace.frames
-    .slice(-3) // 마지막 3개의 스택트레이스만 표시
-    .map(
-      (frame) =>
-        `at ${frame.function} (${frame.filename}:${frame.lineno}:${frame.colno})`
-    )
-    .join("\n");
+  const frames = exception.values[0].stacktrace.frames;
+  const relevantFrames = detailed ? frames : frames.slice(-3);
 
-  return "```" + frames + "```";
+  return (
+    "```" +
+    relevantFrames
+      .map(
+        (frame) =>
+          `at ${frame.function} (${frame.filename}:${frame.lineno}:${frame.colno})` +
+          (frame.context_line ? `\n   ${frame.context_line}` : "")
+      )
+      .join("\n") +
+    "```"
+  );
 }
 
-function convertSentryToSlackMessage(sentryData: SentryEvent) {
+function convertSentryToBasicSlackMessage(sentryData: SentryEvent) {
   const errorTitle =
-    sentryData.metadata?.title || sentryData.message || "알 수 없는 에러";
+    sentryData.metadata?.title || sentryData.message || "Unknown Error";
   const errorType = sentryData.exception?.values?.[0]?.type || "";
   const errorValue = sentryData.exception?.values?.[0]?.value || "";
   const stackTrace = formatStackTrace(sentryData.exception);
 
-  const blocks = [
+  const blocks: SlackBlock[] = [
     {
       type: "header",
       text: {
         type: "plain_text",
-        text: "🚨 Sentry 알림",
+        text: "🚨 Sentry Alert",
         emoji: true,
       },
     },
@@ -63,7 +108,7 @@ function convertSentryToSlackMessage(sentryData: SentryEvent) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*에러:* ${errorTitle}`,
+        text: `*Error:* ${errorTitle}`,
       },
     },
     {
@@ -71,19 +116,11 @@ function convertSentryToSlackMessage(sentryData: SentryEvent) {
       fields: [
         {
           type: "mrkdwn",
-          text: `*프로젝트:*\n${sentryData.project || "N/A"}`,
+          text: `*Project:*\n${sentryData.project || "N/A"}`,
         },
         {
           type: "mrkdwn",
-          text: `*환경:*\n${sentryData.environment || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*레벨:*\n${sentryData.level || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*플랫폼:*\n${sentryData.platform || "N/A"}`,
+          text: `*Environment:*\n${sentryData.environment || "N/A"}`,
         },
       ],
     },
@@ -94,7 +131,7 @@ function convertSentryToSlackMessage(sentryData: SentryEvent) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*에러 상세:*\n${errorType}: ${errorValue}`,
+        text: `*Error Details:*\n${errorType}: ${errorValue}`,
       },
     });
   }
@@ -104,7 +141,7 @@ function convertSentryToSlackMessage(sentryData: SentryEvent) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*스택트레이스:*\n${stackTrace}`,
+        text: `*Stack Trace:*\n${stackTrace}`,
       },
     });
   }
@@ -114,14 +151,230 @@ function convertSentryToSlackMessage(sentryData: SentryEvent) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `<${sentryData.url}|Sentry에서 자세히 보기 >`,
+        text: `<${sentryData.url}|View in Sentry →>`,
       },
     });
   }
 
-  return {
-    blocks: blocks,
-  };
+  return { blocks };
+}
+
+function convertSentryToDetailedSlackMessage(sentryData: SentryEvent) {
+  const errorTitle =
+    sentryData.metadata?.title || sentryData.message || "Unknown Error";
+  const errorType = sentryData.exception?.values?.[0]?.type || "";
+  const errorValue = sentryData.exception?.values?.[0]?.value || "";
+  const stackTrace = formatStackTrace(sentryData.exception, true);
+
+  const blocks: SlackBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "🔍 Detailed Sentry Alert",
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Error:* ${errorTitle}`,
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Project:*\n${sentryData.project || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Environment:*\n${sentryData.environment || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Platform:*\n${sentryData.platform || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Level:*\n${sentryData.level || "N/A"}`,
+        },
+      ],
+    },
+  ];
+
+  // Error Details
+  if (errorType || errorValue) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Error Details:*\n${errorType}: ${errorValue}`,
+      },
+    });
+  }
+
+  // User Context
+  if (sentryData.user) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*User Context:*",
+      },
+    } as SlackBlock);
+
+    blocks.push({
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*User ID:*\n${sentryData.user.id || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Email:*\n${sentryData.user.email || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*IP:*\n${sentryData.user.ip_address || "N/A"}`,
+        },
+      ],
+    } as SlackBlock);
+  }
+
+  // Browser & OS Info
+  if (sentryData.contexts?.browser || sentryData.contexts?.os) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*System Info:*",
+      },
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Browser:*\n${sentryData.contexts?.browser?.name || "N/A"} ${
+            sentryData.contexts?.browser?.version || ""
+          }`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*OS:*\n${sentryData.contexts?.os?.name || "N/A"} ${
+            sentryData.contexts?.os?.version || ""
+          }`,
+        },
+      ],
+    });
+  }
+
+  // Tags
+  if (sentryData.tags && sentryData.tags.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Tags:*\n" +
+          sentryData.tags.map((t) => `${t.key}: ${t.value}`).join("\n"),
+      },
+    });
+  }
+
+  // Stack Trace
+  if (stackTrace) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Full Stack Trace:*\n${stackTrace}`,
+      },
+    });
+  }
+
+  if (sentryData.url) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<${sentryData.url}|View in Sentry →>`,
+      },
+    });
+  }
+
+  return { blocks };
+}
+
+function convertSentryToGroupedSlackMessage(sentryData: SentryEvent) {
+  const errorTitle =
+    sentryData.metadata?.title || sentryData.message || "Unknown Error";
+  const errorType = sentryData.exception?.values?.[0]?.type || "";
+
+  // Note: In a real implementation, you would need to:
+  // 1. Store error occurrences in a database
+  // 2. Track frequency and trends
+  // 3. Calculate affected users
+  // This is a simplified version
+
+  const blocks: SlackBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "📊 Grouped Sentry Alert",
+        emoji: true,
+      },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Error Pattern:* ${errorTitle}`,
+      },
+    },
+    {
+      type: "section",
+      fields: [
+        {
+          type: "mrkdwn",
+          text: `*Type:*\n${errorType || "Unknown"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Environment:*\n${sentryData.environment || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*Project:*\n${sentryData.project || "N/A"}`,
+        },
+        {
+          type: "mrkdwn",
+          text: `*First Seen:*\n${sentryData.timestamp || "Now"}`,
+        },
+      ],
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*Occurrence Pattern:*\n• First occurrence in this session\n• Monitoring for similar errors",
+      },
+    },
+  ];
+
+  if (sentryData.url) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `<${sentryData.url}|View Error Group in Sentry →>`,
+      },
+    });
+  }
+
+  return { blocks };
 }
 
 export async function POST(
@@ -131,35 +384,53 @@ export async function POST(
   try {
     const { id } = params;
 
-    // Supabase에서 웹훅 URL 조회
-    const { data: webhook, error } = await supabase
+    // 웹훅 설정 조회
+    const { data: webhook } = await supabase
       .from("webhooks")
-      .select("slack_webhook_url")
+      .select("slack_webhook_url, message_format")
       .eq("id", id)
       .single();
 
-    if (error || !webhook) {
-      return NextResponse.json(
-        { error: "웹훅을 찾을 수 없습니다." },
-        { status: 404 }
-      );
+    if (!webhook) {
+      return NextResponse.json({ error: "Webhook not found" }, { status: 404 });
     }
 
-    // Sentry 데이터 파싱
-    const sentryData: SentryEvent = await request.json();
-    const slackMessage = convertSentryToSlackMessage(sentryData);
+    const sentryData = await request.json();
+
+    // 메시지 포맷에 따라 다른 변환 함수 사용
+    let slackMessage;
+    switch (webhook.message_format) {
+      case "detailed":
+        slackMessage = convertSentryToDetailedSlackMessage(sentryData);
+        break;
+      case "grouped":
+        slackMessage = convertSentryToGroupedSlackMessage(sentryData);
+        break;
+      default:
+        slackMessage = convertSentryToBasicSlackMessage(sentryData);
+    }
 
     // Slack으로 메시지 전송
-    const slackResponse = await fetch(webhook.slack_webhook_url, {
+    const response = await fetch(webhook.slack_webhook_url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(slackMessage),
     });
 
-    if (!slackResponse.ok) {
-      throw new Error("Slack 메시지 전송 실패");
+    if (!response.ok) {
+      throw new Error("Failed to send to Slack");
+    }
+
+    // 이벤트 기록
+    const { error: eventError } = await supabase.from("webhook_events").insert([
+      {
+        webhook_id: id,
+        event_type: sentryData.level || "unknown",
+      },
+    ]);
+
+    if (eventError) {
+      console.error("이벤트 기록 실패:", eventError);
     }
 
     return NextResponse.json({ success: true });
