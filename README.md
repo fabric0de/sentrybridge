@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Slack Webhook in Sentry
 
-## Getting Started
+A webhook bridge service that forwards Sentry error notifications to Slack.
 
-First, run the development server:
+## Features
+
+- Convert Sentry events to Slack messages
+- Support for 3 message formats:
+  - Basic: Essential error information and stack trace
+  - Detailed: Comprehensive info including browser, OS, tags, and user activity
+  - Grouped: Error pattern and frequency analysis (coming soon)
+- Source code context display
+- Error location highlighting
+- Real-time notifications
+
+## Installation
+
+```bash
+git clone https://github.com/fabric0de/Slack-Webhook-in-Sentry
+cd Slack-Webhook-in-Sentry
+npm install
+```
+
+## Environment Variables
+
+Create a `.env` file and set the following variables:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+## Database Setup
+
+Create the following tables in Supabase:
+
+### webhooks table
+
+```sql
+create table webhooks (
+  id uuid default uuid_generate_v4() primary key,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  slack_webhook_url text not null,
+  message_format text default 'basic'::text,
+  name text
+);
+```
+
+### webhook_events table
+
+```sql
+create table webhook_events (
+  id uuid default uuid_generate_v4() primary key,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  webhook_id uuid references webhooks(id),
+  event_type text
+);
+```
+
+## Usage
+
+1. Create a Slack Incoming Webhook URL
+2. Register a new webhook through the web interface
+3. Add the generated webhook URL to your Sentry webhook settings
+
+## API Endpoints
+
+- `POST /api/webhooks/[id]`: Receives Sentry events and forwards them to Slack
+
+## Message Formats
+
+### Basic Format
+
+- Error type and message
+- Location and environment
+- Source code context
+- Simple stack trace
+
+### Detailed Format
+
+- All Basic Format information
+- Browser/OS information
+- User information
+- Recent activity history
+- Tag information
+- Additional context data
+
+## Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Build
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Contributing
 
-## Learn More
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-To learn more about Next.js, take a look at the following resources:
+## License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT License
