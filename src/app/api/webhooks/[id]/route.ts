@@ -166,7 +166,7 @@ function convertSentryToDetailedSlackMessage(sentryData: SentryEvent) {
   const errorValue = sentryData.exception?.values?.[0]?.value || "";
   const stackTrace = formatStackTrace(sentryData.exception, true);
 
-  const blocks: SlackBlock[] = [
+  const blocks = [
     {
       type: "header",
       text: {
@@ -179,120 +179,24 @@ function convertSentryToDetailedSlackMessage(sentryData: SentryEvent) {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `*Error:* ${errorTitle}`,
+        text: `*Error:* ${errorTitle}\n*Type:* ${errorType}\n*Value:* ${errorValue}`,
       },
     },
     {
       type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Project:*\n${sentryData.project || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Environment:*\n${sentryData.environment || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Platform:*\n${sentryData.platform || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Level:*\n${sentryData.level || "N/A"}`,
-        },
-      ],
-    },
-  ];
-
-  // Error Details
-  if (errorType || errorValue) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Error Details:*\n${errorType}: ${errorValue}`,
-      },
-    });
-  }
-
-  // User Context
-  if (sentryData.user) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*User Context:*",
-      },
-    } as SlackBlock);
-
-    blocks.push({
-      type: "section",
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*User ID:*\n${sentryData.user.id || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*Email:*\n${sentryData.user.email || "N/A"}`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*IP:*\n${sentryData.user.ip_address || "N/A"}`,
-        },
-      ],
-    } as SlackBlock);
-  }
-
-  // Browser & OS Info
-  if (sentryData.contexts?.browser || sentryData.contexts?.os) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*System Info:*",
-      },
-      fields: [
-        {
-          type: "mrkdwn",
-          text: `*Browser:*\n${sentryData.contexts?.browser?.name || "N/A"} ${
-            sentryData.contexts?.browser?.version || ""
-          }`,
-        },
-        {
-          type: "mrkdwn",
-          text: `*OS:*\n${sentryData.contexts?.os?.name || "N/A"} ${
-            sentryData.contexts?.os?.version || ""
-          }`,
-        },
-      ],
-    });
-  }
-
-  // Tags
-  if (sentryData.tags && sentryData.tags.length > 0) {
-    blocks.push({
-      type: "section",
       text: {
         type: "mrkdwn",
         text:
-          "*Tags:*\n" +
-          sentryData.tags.map((t) => `${t.key}: ${t.value}`).join("\n"),
+          "```\n" +
+          `Exception\n${errorType}: ${errorValue}\n\n` +
+          `Stack\n${stackTrace}\n\n` +
+          `User\n${formatUserInfo(sentryData.user)}\n\n` +
+          `Tags\n${formatTags(sentryData.tags)}\n\n` +
+          `Context\n${formatContext(sentryData.contexts)}\n` +
+          "```",
       },
-    });
-  }
-
-  // Stack Trace
-  if (stackTrace) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Full Stack Trace:*\n${stackTrace}`,
-      },
-    });
-  }
+    },
+  ];
 
   if (sentryData.url) {
     blocks.push({
@@ -305,6 +209,32 @@ function convertSentryToDetailedSlackMessage(sentryData: SentryEvent) {
   }
 
   return { blocks };
+}
+
+function formatUserInfo(user?: SentryEvent["user"]): string {
+  if (!user) return "No user information";
+  return Object.entries(user)
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+}
+
+function formatTags(tags?: SentryEvent["tags"]): string {
+  if (!tags || tags.length === 0) return "No tags";
+  return tags.map((tag) => `${tag.key}: ${tag.value}`).join("\n");
+}
+
+function formatContext(contexts?: SentryEvent["contexts"]): string {
+  if (!contexts) return "No context information";
+  return Object.entries(contexts)
+    .map(([key, value]) => {
+      if (typeof value === "object") {
+        return `${key}:\n  ${Object.entries(value)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join("\n  ")}`;
+      }
+      return `${key}: ${value}`;
+    })
+    .join("\n");
 }
 
 function convertSentryToGroupedSlackMessage(sentryData: SentryEvent) {
