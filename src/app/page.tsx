@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import {
   Check,
@@ -50,7 +49,6 @@ export default function Home() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [messageFormat, setMessageFormat] = useState<MessageFormat>("basic");
   const [generatedUrl, setGeneratedUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [stats, setStats] = useState<{
@@ -198,12 +196,6 @@ export default function Home() {
                   ))}
                 </RadioGroup>
               </div>
-
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
 
               <Button
                 className="w-full hover:bg-[var(--hover-color)] transition-colors"
